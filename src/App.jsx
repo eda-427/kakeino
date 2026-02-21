@@ -56,6 +56,7 @@ export default function App() {
 
   const [isTxModalOpen, setIsTxModalOpen] = useState(false);
   const [isCatModalOpen, setIsCatModalOpen] = useState(false);
+  const [editingTx, setEditingTx] = useState(null); // 編集中のデータを保持するステート
 
   // PWAインストールのためのステート
   const [deferredPrompt, setDeferredPrompt] = useState(null);
@@ -177,9 +178,26 @@ export default function App() {
   }, [currentDate]);
 
   // --- ハンドラー ---
-  const handleAddTransaction = (newTx) => {
-    setTransactions(prev => [...prev, { ...newTx, id: Date.now().toString() }]);
+  const handleAddNewClick = () => {
+    setEditingTx(null); // 新規作成時は編集データをクリア
+    setIsTxModalOpen(true);
+  };
+
+  const handleEditClick = (tx) => {
+    setEditingTx(tx); // 編集するデータをセット
+    setIsTxModalOpen(true);
+  };
+
+  const handleSaveTransaction = (txData) => {
+    if (editingTx) {
+      // 編集の保存
+      setTransactions(prev => prev.map(tx => tx.id === editingTx.id ? { ...txData, id: tx.id } : tx));
+    } else {
+      // 新規の保存
+      setTransactions(prev => [...prev, { ...txData, id: Date.now().toString() }]);
+    }
     setIsTxModalOpen(false);
+    setEditingTx(null);
   };
 
   const handleDeleteTransaction = (id) => {
@@ -265,7 +283,11 @@ export default function App() {
             {dayTxs.map(tx => {
               const category = categories.find(c => c.id === tx.categoryId);
               return (
-                <div key={tx.id} className="flex items-center justify-between p-2 hover:bg-gray-50 rounded-xl transition-colors group">
+                <div 
+                  key={tx.id} 
+                  onClick={() => handleEditClick(tx)}
+                  className="flex items-center justify-between p-2 hover:bg-gray-50 rounded-xl transition-colors group cursor-pointer"
+                >
                   <div className="flex items-center space-x-3">
                     <div className={`w-8 h-8 rounded-full flex items-center justify-center ${category?.color || 'bg-gray-200'} text-white`}>
                       {tx.type === 'income' ? <ArrowDownCircle size={16} /> : <ArrowUpCircle size={16} />}
@@ -279,7 +301,10 @@ export default function App() {
                     <div className={`text-sm font-semibold ${tx.type === 'income' ? 'text-blue-600' : 'text-gray-800'}`}>
                       {tx.type === 'income' ? '+' : '-'}{formatCurrency(tx.amount)}
                     </div>
-                    <button onClick={() => handleDeleteTransaction(tx.id)} className="text-gray-300 hover:text-red-500 p-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <button 
+                      onClick={(e) => { e.stopPropagation(); handleDeleteTransaction(tx.id); }} 
+                      className="text-gray-300 hover:text-red-500 p-1 opacity-0 group-hover:opacity-100 transition-opacity"
+                    >
                       <Trash2 size={16} />
                     </button>
                   </div>
@@ -311,7 +336,11 @@ export default function App() {
               const category = categories.find(c => c.id === tx.categoryId);
               const txDate = new Date(tx.date);
               return (
-                <div key={tx.id} className="flex items-center justify-between p-2 hover:bg-gray-50 rounded-xl transition-colors group border-b border-gray-50 pb-3 last:border-0 last:pb-2">
+                <div 
+                  key={tx.id} 
+                  onClick={() => handleEditClick(tx)}
+                  className="flex items-center justify-between p-2 hover:bg-gray-50 rounded-xl transition-colors group border-b border-gray-50 pb-3 last:border-0 last:pb-2 cursor-pointer"
+                >
                   <div className="flex items-center space-x-3">
                     <div className="flex flex-col items-center justify-center w-10 text-center">
                       <span className="text-[10px] text-gray-400 font-medium leading-none">{txDate.getMonth() + 1}月</span>
@@ -329,7 +358,10 @@ export default function App() {
                     <div className={`text-sm font-bold ${tx.type === 'income' ? 'text-blue-600' : 'text-gray-800'}`}>
                       {tx.type === 'income' ? '+' : '-'}{formatCurrency(tx.amount)}
                     </div>
-                    <button onClick={() => handleDeleteTransaction(tx.id)} className="text-gray-300 hover:text-red-500 p-1 lg:opacity-0 lg:group-hover:opacity-100 transition-opacity">
+                    <button 
+                      onClick={(e) => { e.stopPropagation(); handleDeleteTransaction(tx.id); }} 
+                      className="text-gray-300 hover:text-red-500 p-1 lg:opacity-0 lg:group-hover:opacity-100 transition-opacity"
+                    >
                       <Trash2 size={16} />
                     </button>
                   </div>
@@ -442,19 +474,20 @@ export default function App() {
 
       {/* フローティング追加ボタン */}
       <button 
-        onClick={() => setIsTxModalOpen(true)}
+        onClick={handleAddNewClick}
         className="fixed bottom-6 right-6 w-14 h-14 bg-gray-900 text-white rounded-2xl shadow-lg shadow-gray-400/30 flex items-center justify-center hover:bg-gray-800 hover:scale-105 active:scale-95 transition-all z-20"
       >
         <Plus size={28} />
       </button>
 
-      {/* モーダル: トランザクション入力 */}
+      {/* モーダル: トランザクション入力/編集 */}
       {isTxModalOpen && (
         <TransactionModal 
           onClose={() => setIsTxModalOpen(false)}
-          onSubmit={handleAddTransaction}
+          onSubmit={handleSaveTransaction}
           categories={categories}
           initialDate={viewMode === 'calendar' ? selectedDate : new Date()}
+          editingTx={editingTx}
         />
       )}
 
@@ -474,7 +507,6 @@ export default function App() {
 
 // --- サブコンポーネント: 広告バナー ---
 function AdBanner() {
-  // 実際のAdSenseスクリプトを読み込む処理（公開時に有効化します）
   useEffect(() => {
     // try {
     //   (window.adsbygoogle = window.adsbygoogle || []).push({});
@@ -485,22 +517,6 @@ function AdBanner() {
 
   return (
     <div className="mt-8 mb-4">
-      {/* 【公開時の手順】
-        1. Google AdSenseの審査に通ったら、以下のダミー広告枠を消します。
-        2. コメントアウトされている <ins> タグのコメントを外します。
-        3. data-ad-client と data-ad-slot を自分のIDに書き換えます。
-      */}
-      
-      {/* 実際の広告タグ (現在はコメントアウト) */}
-      {/*
-      <ins className="adsbygoogle"
-           style={{ display: 'block' }}
-           data-ad-client="ca-pub-XXXXXXXXXXXXXXXX"
-           data-ad-slot="YYYYYYYYYY"
-           data-ad-format="auto"
-           data-full-width-responsive="true"></ins>
-      */}
-
       {/* プレビュー用のダミー広告枠 */}
       <div className="w-full h-20 bg-gray-100 border-2 border-dashed border-gray-300 rounded-xl flex flex-col items-center justify-center text-gray-400">
         <span className="text-xs font-bold mb-1">スポンサーリンク</span>
@@ -511,12 +527,12 @@ function AdBanner() {
 }
 
 // --- サブコンポーネント: トランザクション入力モーダル ---
-function TransactionModal({ onClose, onSubmit, categories, initialDate }) {
-  const [type, setType] = useState('expense');
-  const [amount, setAmount] = useState('');
-  const [date, setDate] = useState(getLocalYMD(initialDate));
-  const [categoryId, setCategoryId] = useState('');
-  const [memo, setMemo] = useState('');
+function TransactionModal({ onClose, onSubmit, categories, initialDate, editingTx }) {
+  const [type, setType] = useState(editingTx ? editingTx.type : 'expense');
+  const [amount, setAmount] = useState(editingTx ? editingTx.amount.toString() : '');
+  const [date, setDate] = useState(editingTx ? editingTx.date : getLocalYMD(initialDate));
+  const [categoryId, setCategoryId] = useState(editingTx ? editingTx.categoryId : '');
+  const [memo, setMemo] = useState(editingTx ? editingTx.memo : '');
 
   const filteredCategories = categories.filter(c => c.type === type);
 
@@ -545,7 +561,7 @@ function TransactionModal({ onClose, onSubmit, categories, initialDate }) {
     <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-end sm:items-center justify-center animate-in fade-in duration-200">
       <div className="bg-white w-full max-w-md rounded-t-3xl sm:rounded-3xl p-6 pb-10 sm:pb-6 animate-in slide-in-from-bottom-full sm:slide-in-from-bottom-10 shadow-2xl">
         <div className="flex items-center justify-between mb-6">
-          <h2 className="text-xl font-bold text-gray-800">記録を追加</h2>
+          <h2 className="text-xl font-bold text-gray-800">{editingTx ? '記録を編集' : '記録を追加'}</h2>
           <button onClick={onClose} className="p-2 bg-gray-100 hover:bg-gray-200 text-gray-500 rounded-full transition-colors">
             <X size={20} />
           </button>
@@ -624,7 +640,7 @@ function TransactionModal({ onClose, onSubmit, categories, initialDate }) {
           </div>
 
           <button type="submit" className="w-full bg-gray-900 hover:bg-gray-800 text-white font-bold py-4 rounded-xl shadow-md transition-colors mt-2">
-            保存する
+            {editingTx ? '更新する' : '保存する'}
           </button>
         </form>
       </div>
