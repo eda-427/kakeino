@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { ChevronLeft, ChevronRight, Plus, Calendar as CalendarIcon, List as ListIcon, Settings, X, Trash2, ArrowDownCircle, ArrowUpCircle, Download } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Plus, Calendar as CalendarIcon, List as ListIcon, PieChart, Settings, X, Trash2, ArrowDownCircle, ArrowUpCircle, Download } from 'lucide-react';
 
 // --- 初期データ ---
 const INITIAL_CATEGORIES = [
@@ -33,7 +33,7 @@ const formatCurrency = (amount) => {
 export default function App() {
   const [currentDate, setCurrentDate] = useState(new Date());
   const [selectedDate, setSelectedDate] = useState(new Date());
-  const [viewMode, setViewMode] = useState('calendar'); // 'calendar' | 'list'
+  const [viewMode, setViewMode] = useState('calendar'); // 'calendar' | 'list' | 'report'
   
   // LocalStorageから初期データを読み込む
   const [transactions, setTransactions] = useState(() => {
@@ -374,6 +374,87 @@ export default function App() {
     );
   };
 
+  // --- コンポーネント: ジャンル別内訳 ---
+  const renderReport = () => {
+    const expenseTotals = categories.filter(c => c.type === 'expense').map(c => {
+      const amount = currentMonthTx.filter(tx => tx.categoryId === c.id).reduce((sum, tx) => sum + tx.amount, 0);
+      return { ...c, amount };
+    }).filter(c => c.amount > 0).sort((a, b) => b.amount - a.amount);
+
+    const incomeTotals = categories.filter(c => c.type === 'income').map(c => {
+      const amount = currentMonthTx.filter(tx => tx.categoryId === c.id).reduce((sum, tx) => sum + tx.amount, 0);
+      return { ...c, amount };
+    }).filter(c => c.amount > 0).sort((a, b) => b.amount - a.amount);
+
+    return (
+      <div className="space-y-4">
+        {/* 支出の内訳 */}
+        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4">
+          <h3 className="text-sm font-bold text-gray-700 mb-4 flex items-center">
+            <ArrowUpCircle size={16} className="text-red-500 mr-1.5" />
+            支出の内訳
+          </h3>
+          {expenseTotals.length === 0 ? (
+             <p className="text-center text-gray-400 text-sm py-4">今月の支出はありません</p>
+          ) : (
+            <div className="space-y-4">
+              {expenseTotals.map(cat => {
+                const percentage = summary.expense > 0 ? Math.round((cat.amount / summary.expense) * 100) : 0;
+                return (
+                  <div key={cat.id} className="space-y-1.5">
+                    <div className="flex items-center justify-between text-sm">
+                      <div className="flex items-center space-x-2">
+                        <div className={`w-3 h-3 rounded-full ${cat.color}`}></div>
+                        <span className="font-medium text-gray-700">{cat.name}</span>
+                        <span className="text-xs text-gray-400">{percentage}%</span>
+                      </div>
+                      <span className="font-bold text-gray-800">{formatCurrency(cat.amount)}</span>
+                    </div>
+                    <div className="h-2 w-full bg-gray-100 rounded-full overflow-hidden">
+                      <div className={`h-full ${cat.color} rounded-full transition-all duration-500`} style={{ width: `${percentage}%` }}></div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+        {/* 収入の内訳 */}
+        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4">
+          <h3 className="text-sm font-bold text-gray-700 mb-4 flex items-center">
+            <ArrowDownCircle size={16} className="text-blue-600 mr-1.5" />
+            収入の内訳
+          </h3>
+          {incomeTotals.length === 0 ? (
+             <p className="text-center text-gray-400 text-sm py-4">今月の収入はありません</p>
+          ) : (
+            <div className="space-y-4">
+              {incomeTotals.map(cat => {
+                const percentage = summary.income > 0 ? Math.round((cat.amount / summary.income) * 100) : 0;
+                return (
+                  <div key={cat.id} className="space-y-1.5">
+                    <div className="flex items-center justify-between text-sm">
+                      <div className="flex items-center space-x-2">
+                        <div className={`w-3 h-3 rounded-full ${cat.color}`}></div>
+                        <span className="font-medium text-gray-700">{cat.name}</span>
+                        <span className="text-xs text-gray-400">{percentage}%</span>
+                      </div>
+                      <span className="font-bold text-gray-800">{formatCurrency(cat.amount)}</span>
+                    </div>
+                    <div className="h-2 w-full bg-gray-100 rounded-full overflow-hidden">
+                      <div className={`h-full ${cat.color} rounded-full transition-all duration-500`} style={{ width: `${percentage}%` }}></div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  };
+
   return (
     <div className="min-h-screen bg-gray-50 font-sans text-gray-900 pb-24 selection:bg-blue-100">
       
@@ -430,25 +511,32 @@ export default function App() {
 
         {/* タブ切り替え & 設定ボタン */}
         <div className="flex items-center justify-between">
-          <div className="flex bg-gray-200/60 p-1 rounded-xl">
+          <div className="flex bg-gray-200/60 p-1 rounded-xl overflow-x-auto no-scrollbar">
             <button 
               onClick={() => setViewMode('calendar')}
-              className={`flex items-center space-x-1.5 px-4 py-1.5 rounded-lg text-sm font-medium transition-all ${viewMode === 'calendar' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+              className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-all shrink-0 ${viewMode === 'calendar' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
             >
               <CalendarIcon size={16} />
               <span>カレンダー</span>
             </button>
             <button 
               onClick={() => setViewMode('list')}
-              className={`flex items-center space-x-1.5 px-4 py-1.5 rounded-lg text-sm font-medium transition-all ${viewMode === 'list' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+              className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-all shrink-0 ${viewMode === 'list' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
             >
               <ListIcon size={16} />
               <span>リスト</span>
             </button>
+            <button 
+              onClick={() => setViewMode('report')}
+              className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-all shrink-0 ${viewMode === 'report' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+            >
+              <PieChart size={16} />
+              <span>内訳</span>
+            </button>
           </div>
           <button 
             onClick={() => setIsCatModalOpen(true)}
-            className="p-2 text-gray-400 hover:text-gray-700 hover:bg-gray-200/50 rounded-xl transition-colors"
+            className="p-2 text-gray-400 hover:text-gray-700 hover:bg-gray-200/50 rounded-xl transition-colors shrink-0 ml-2"
             title="ジャンル設定"
           >
             <Settings size={20} />
@@ -457,14 +545,14 @@ export default function App() {
 
         {/* メインコンテンツ */}
         <div className="animate-in fade-in slide-in-from-bottom-2 duration-300">
-          {viewMode === 'calendar' ? (
+          {viewMode === 'calendar' && (
             <>
               {renderCalendar()}
               {renderDayTransactions()}
             </>
-          ) : (
-            renderList()
           )}
+          {viewMode === 'list' && renderList()}
+          {viewMode === 'report' && renderReport()}
         </div>
 
         {/* 広告エリア (Google AdSenseを想定) */}
