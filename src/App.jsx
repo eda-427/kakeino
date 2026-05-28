@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { ChevronLeft, ChevronRight, Plus, Calendar as CalendarIcon, List as ListIcon, PieChart, Settings, X, Trash2, ArrowDownCircle, ArrowUpCircle, Download } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Plus, Calendar as CalendarIcon, List as ListIcon, PieChart, Settings, X, Trash2, ArrowDownCircle, ArrowUpCircle, Download, Database, Copy, Check, Folder, ChevronDown, ChevronUp } from 'lucide-react';
 
 // --- 初期データ ---
 const INITIAL_CATEGORIES = [
@@ -33,7 +33,7 @@ const formatCurrency = (amount) => {
 export default function App() {
   const [currentDate, setCurrentDate] = useState(new Date());
   const [selectedDate, setSelectedDate] = useState(new Date());
-  const [viewMode, setViewMode] = useState('calendar'); // 'calendar' | 'list' | 'report'
+  const [viewMode, setViewMode] = useState('calendar'); // 'calendar' | 'list' | 'report' | 'events'
   
   // LocalStorageから初期データを読み込む
   const [transactions, setTransactions] = useState(() => {
@@ -54,9 +54,25 @@ export default function App() {
     }
   });
 
+  // まとめ(イベント)データ
+  const [events, setEvents] = useState(() => {
+    try {
+      const saved = localStorage.getItem('kakeibo_events');
+      return saved ? JSON.parse(saved) : [];
+    } catch (e) {
+      return [];
+    }
+  });
+
   const [isTxModalOpen, setIsTxModalOpen] = useState(false);
   const [isCatModalOpen, setIsCatModalOpen] = useState(false);
-  const [editingTx, setEditingTx] = useState(null); // 編集中のデータを保持するステート
+  const [isTransferModalOpen, setIsTransferModalOpen] = useState(false);
+  const [editingTx, setEditingTx] = useState(null);
+  
+  // 新規イベント入力用
+  const [newEventName, setNewEventName] = useState('');
+  // イベントの開閉状態を管理
+  const [expandedEvents, setExpandedEvents] = useState({});
 
   // PWAインストールのためのステート
   const [deferredPrompt, setDeferredPrompt] = useState(null);
@@ -71,9 +87,12 @@ export default function App() {
     localStorage.setItem('kakeibo_categories', JSON.stringify(categories));
   }, [categories]);
 
+  useEffect(() => {
+    localStorage.setItem('kakeibo_events', JSON.stringify(events));
+  }, [events]);
+
   // --- PWA対応設定 ---
   useEffect(() => {
-    // 1. 動的Manifestの生成
     const manifest = {
       name: "シンプル家計簿",
       short_name: "家計簿",
@@ -101,25 +120,6 @@ export default function App() {
     }
     link.href = manifestUrl;
 
-    // 2. Service Workerの動的登録
-    // 注意: 現在のプレビュー環境ではblob URLからのService Worker登録が
-    // セキュリティ制約によりエラーになるため、無効化しています。
-    // 実際にPWAとして公開する場合は、別途 sw.js をサーバーに配置してください。
-    /*
-    const swCode = `
-      self.addEventListener('install', (e) => self.skipWaiting());
-      self.addEventListener('activate', (e) => self.clients.claim());
-      self.addEventListener('fetch', (e) => {});
-    `;
-    const swBlob = new Blob([swCode], { type: 'application/javascript' });
-    const swUrl = URL.createObjectURL(swBlob);
-
-    if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.register(swUrl).catch(console.error);
-    }
-    */
-
-    // 3. インストールイベントの捕捉
     const handleBeforeInstallPrompt = (e) => {
       e.preventDefault();
       setDeferredPrompt(e);
@@ -161,7 +161,6 @@ export default function App() {
     return { income, expense, total: income - expense };
   }, [currentMonthTx]);
 
-  // --- カレンダーロジック ---
   const prevMonth = () => setCurrentDate(new Date(currentDate.getFullYear(), currentDate.getMonth() - 1, 1));
   const nextMonth = () => setCurrentDate(new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 1));
 
@@ -179,21 +178,19 @@ export default function App() {
 
   // --- ハンドラー ---
   const handleAddNewClick = () => {
-    setEditingTx(null); // 新規作成時は編集データをクリア
+    setEditingTx(null);
     setIsTxModalOpen(true);
   };
 
   const handleEditClick = (tx) => {
-    setEditingTx(tx); // 編集するデータをセット
+    setEditingTx(tx);
     setIsTxModalOpen(true);
   };
 
   const handleSaveTransaction = (txData) => {
     if (editingTx) {
-      // 編集の保存
       setTransactions(prev => prev.map(tx => tx.id === editingTx.id ? { ...txData, id: tx.id } : tx));
     } else {
-      // 新規の保存
       setTransactions(prev => [...prev, { ...txData, id: Date.now().toString() }]);
     }
     setIsTxModalOpen(false);
@@ -201,7 +198,9 @@ export default function App() {
   };
 
   const handleDeleteTransaction = (id) => {
-    setTransactions(prev => prev.filter(tx => tx.id !== id));
+    if (window.confirm('この記録を削除してもよろしいですか？')) {
+      setTransactions(prev => prev.filter(tx => tx.id !== id));
+    }
   };
 
   const handleAddCategory = (newCat) => {
@@ -210,6 +209,35 @@ export default function App() {
 
   const handleDeleteCategory = (id) => {
     setCategories(prev => prev.filter(cat => cat.id !== id));
+  };
+
+  // まとめのハンドラー
+  const handleAddEvent = (e) => {
+    e.preventDefault();
+    if (!newEventName.trim()) return;
+    const newEvtId = `evt-${Date.now()}`;
+    setEvents(prev => [...prev, { id: newEvtId, name: newEventName.trim() }]);
+    setNewEventName('');
+    // 追加したばかりのまとめは自動で開いておく
+    setExpandedEvents(prev => ({ ...prev, [newEvtId]: true }));
+  };
+
+  const handleDeleteEvent = (id) => {
+    if (window.confirm('このまとめを削除しますか？\n（※中に入っている記録のデータ自体は消えません）')) {
+      setEvents(prev => prev.filter(evt => evt.id !== id));
+      setTransactions(prev => prev.map(tx => tx.eventId === id ? { ...tx, eventId: '' } : tx));
+    }
+  };
+
+  const toggleEventExpansion = (id) => {
+    setExpandedEvents(prev => ({ ...prev, [id]: !prev[id] }));
+  };
+
+  // 引継ぎデータを反映するハンドラー
+  const handleImportData = (importedTransactions, importedCategories, importedEvents) => {
+    setTransactions(importedTransactions);
+    setCategories(importedCategories);
+    setEvents(importedEvents || []);
   };
 
   // --- コンポーネント: カレンダービュー ---
@@ -282,6 +310,7 @@ export default function App() {
           <div className="space-y-3">
             {dayTxs.map(tx => {
               const category = categories.find(c => c.id === tx.categoryId);
+              const event = events.find(e => e.id === tx.eventId);
               return (
                 <div 
                   key={tx.id} 
@@ -294,7 +323,10 @@ export default function App() {
                     </div>
                     <div>
                       <div className="text-sm font-medium text-gray-800">{category ? category.name : '不明'}</div>
-                      {tx.memo && <div className="text-xs text-gray-500 mt-0.5">{tx.memo}</div>}
+                      <div className="flex items-center flex-wrap">
+                        {event && <span className="inline-block text-[10px] bg-indigo-50 text-indigo-600 px-1.5 py-0.5 rounded mt-0.5 mr-1.5"><Folder size={10} className="inline mr-0.5 mb-0.5" />{event.name}</span>}
+                        {tx.memo && <span className="text-xs text-gray-500 mt-0.5">{tx.memo}</span>}
+                      </div>
                     </div>
                   </div>
                   <div className="flex items-center space-x-3">
@@ -334,6 +366,7 @@ export default function App() {
           <div className="space-y-4">
             {sortedTxs.map(tx => {
               const category = categories.find(c => c.id === tx.categoryId);
+              const event = events.find(e => e.id === tx.eventId);
               const txDate = new Date(tx.date);
               return (
                 <div 
@@ -351,7 +384,10 @@ export default function App() {
                     </div>
                     <div>
                       <div className="text-sm font-medium text-gray-800">{category ? category.name : '不明'}</div>
-                      {tx.memo && <div className="text-[11px] text-gray-500 mt-0.5 line-clamp-1">{tx.memo}</div>}
+                      <div className="flex items-center flex-wrap">
+                        {event && <span className="inline-block text-[10px] bg-indigo-50 text-indigo-600 px-1.5 py-0.5 rounded mt-0.5 mr-1.5"><Folder size={10} className="inline mr-0.5 mb-0.5" />{event.name}</span>}
+                        {tx.memo && <span className="text-[11px] text-gray-500 mt-0.5 line-clamp-1">{tx.memo}</span>}
+                      </div>
                     </div>
                   </div>
                   <div className="flex items-center space-x-3">
@@ -388,7 +424,6 @@ export default function App() {
 
     return (
       <div className="space-y-4">
-        {/* 支出の内訳 */}
         <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4">
           <h3 className="text-sm font-bold text-gray-700 mb-4 flex items-center">
             <ArrowUpCircle size={16} className="text-red-500 mr-1.5" />
@@ -420,7 +455,6 @@ export default function App() {
           )}
         </div>
 
-        {/* 収入の内訳 */}
         <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4">
           <h3 className="text-sm font-bold text-gray-700 mb-4 flex items-center">
             <ArrowDownCircle size={16} className="text-blue-600 mr-1.5" />
@@ -455,10 +489,124 @@ export default function App() {
     );
   };
 
+  // --- コンポーネント: まとめ（イベント）表示 ---
+  const renderEvents = () => {
+    return (
+      <div className="space-y-4">
+        {/* 新規まとめ追加 */}
+        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4">
+          <h3 className="text-sm font-bold text-gray-700 mb-3">新しいまとめ（旅行など）を作成</h3>
+          <form onSubmit={handleAddEvent} className="flex space-x-2">
+            <input 
+              type="text" 
+              value={newEventName}
+              onChange={e => setNewEventName(e.target.value)}
+              placeholder="例: 北海道旅行、12月の飲み会..."
+              className="flex-1 bg-gray-50 border border-gray-200 rounded-xl px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900"
+            />
+            <button type="submit" disabled={!newEventName.trim()} className="bg-gray-900 text-white px-4 rounded-xl font-medium hover:bg-gray-800 disabled:opacity-50 transition-colors">
+              作成
+            </button>
+          </form>
+        </div>
+
+        {/* まとめ一覧 */}
+        {events.length === 0 ? (
+           <p className="text-center text-gray-400 text-sm py-6">まとめはまだありません</p>
+        ) : (
+          <div className="space-y-4">
+            {/* 新しく作ったものが上に来るように逆順で表示 */}
+            {[...events].reverse().map(evt => {
+              const evTxs = transactions.filter(tx => tx.eventId === evt.id).sort((a, b) => new Date(b.date) - new Date(a.date));
+              let inc = 0, exp = 0;
+              evTxs.forEach(tx => {
+                if(tx.type === 'income') inc += tx.amount;
+                else exp += tx.amount;
+              });
+
+              // このイベントが開いているかどうか
+              const isExpanded = expandedEvents[evt.id];
+
+              return (
+                <div key={evt.id} className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+                  {/* ヘッダー部分（タップで開閉） */}
+                  <div 
+                    onClick={() => toggleEventExpansion(evt.id)}
+                    className="p-4 bg-gray-50/80 flex items-center justify-between border-b border-gray-100 cursor-pointer hover:bg-gray-100 transition-colors"
+                  >
+                    <h3 className="font-bold text-gray-800 flex items-center">
+                      <Folder size={18} className="mr-2 text-indigo-500" />
+                      {evt.name}
+                    </h3>
+                    <div className="flex items-center space-x-2">
+                      <button 
+                        onClick={(e) => { 
+                          e.stopPropagation(); // 開閉が発動しないようにする
+                          handleDeleteEvent(evt.id); 
+                        }} 
+                        className="text-gray-400 hover:text-red-500 p-1 transition-colors"
+                        title="このまとめを削除"
+                      >
+                        <Trash2 size={16} />
+                      </button>
+                      <div className="text-gray-400">
+                        {isExpanded ? <ChevronUp size={20} /> : <ChevronDown size={20} />}
+                      </div>
+                    </div>
+                  </div>
+                  
+                  {/* 中身（開いている時だけ表示） */}
+                  {isExpanded && (
+                    <div className="p-4 animate-in fade-in slide-in-from-top-2 duration-200">
+                      <div className="flex space-x-4 mb-4 text-sm">
+                        <div className="flex-1 bg-red-50 text-red-700 rounded-xl p-3 text-center border border-red-100">
+                          <span className="block text-xs font-bold opacity-80 mb-0.5">総支出</span>
+                          <span className="font-bold text-lg">{formatCurrency(exp)}</span>
+                        </div>
+                        <div className="flex-1 bg-blue-50 text-blue-700 rounded-xl p-3 text-center border border-blue-100">
+                          <span className="block text-xs font-bold opacity-80 mb-0.5">総収入</span>
+                          <span className="font-bold text-lg">{formatCurrency(inc)}</span>
+                        </div>
+                      </div>
+                      
+                      {evTxs.length === 0 ? (
+                        <p className="text-xs text-center text-gray-400 py-2">まだ記録がありません</p>
+                      ) : (
+                        <div className="space-y-1.5 mt-2 border-t border-gray-100 pt-3">
+                          {evTxs.map(tx => {
+                            const category = categories.find(c => c.id === tx.categoryId);
+                            const txDate = new Date(tx.date);
+                            return (
+                              <div key={tx.id} onClick={() => handleEditClick(tx)} className="flex justify-between items-center text-sm cursor-pointer hover:bg-gray-50 p-2 rounded-xl transition-colors">
+                                <div className="flex items-center space-x-2.5">
+                                  <span className="text-[10px] text-gray-400 font-medium w-8 text-center">{txDate.getMonth()+1}/{txDate.getDate()}</span>
+                                  <div className={`w-2.5 h-2.5 rounded-full ${category?.color || 'bg-gray-200'}`}></div>
+                                  <span className="text-gray-700 font-medium">{category ? category.name : '不明'}</span>
+                                  {tx.memo && <span className="text-xs text-gray-400 line-clamp-1 max-w-[100px]">({tx.memo})</span>}
+                                </div>
+                                <span className={`font-bold ${tx.type === 'income' ? 'text-blue-600' : 'text-gray-800'}`}>
+                                  {tx.type === 'income' ? '+' : '-'}{formatCurrency(tx.amount)}
+                                </span>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    );
+  };
+
   return (
     <div className="min-h-screen bg-gray-50 font-sans text-gray-900 pb-24 selection:bg-blue-100">
       
-      {/* ヘッダー: 年月ナビゲーション */}
+      {/* ヘッダー */}
       <header className="bg-white px-4 py-4 sticky top-0 z-10 shadow-sm border-b border-gray-100 flex items-center justify-between">
         <button onClick={prevMonth} className="p-2 hover:bg-gray-100 rounded-full transition-colors text-gray-600">
           <ChevronLeft size={24} />
@@ -476,6 +624,13 @@ export default function App() {
               <Download size={20} />
             </button>
           )}
+          <button 
+            onClick={() => setIsTransferModalOpen(true)}
+            className="p-2 text-gray-500 hover:bg-gray-100 hover:text-gray-800 rounded-full transition-colors mr-1"
+            title="データのお引越し"
+          >
+            <Database size={20} />
+          </button>
           <button onClick={nextMonth} className="p-2 hover:bg-gray-100 rounded-full transition-colors text-gray-600">
             <ChevronRight size={24} />
           </button>
@@ -533,6 +688,13 @@ export default function App() {
               <PieChart size={16} />
               <span>内訳</span>
             </button>
+            <button 
+              onClick={() => setViewMode('events')}
+              className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-all shrink-0 ${viewMode === 'events' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+            >
+              <Folder size={16} />
+              <span>まとめ</span>
+            </button>
           </div>
           <button 
             onClick={() => setIsCatModalOpen(true)}
@@ -553,9 +715,9 @@ export default function App() {
           )}
           {viewMode === 'list' && renderList()}
           {viewMode === 'report' && renderReport()}
+          {viewMode === 'events' && renderEvents()}
         </div>
 
-        {/* 広告エリア (Google AdSenseを想定) */}
         <AdBanner />
 
       </main>
@@ -568,24 +730,34 @@ export default function App() {
         <Plus size={28} />
       </button>
 
-      {/* モーダル: トランザクション入力/編集 */}
+      {/* モーダル群 */}
       {isTxModalOpen && (
         <TransactionModal 
           onClose={() => setIsTxModalOpen(false)}
           onSubmit={handleSaveTransaction}
           categories={categories}
+          events={events}
           initialDate={viewMode === 'calendar' ? selectedDate : new Date()}
           editingTx={editingTx}
         />
       )}
 
-      {/* モーダル: カテゴリー管理 */}
       {isCatModalOpen && (
         <CategoryModal 
           onClose={() => setIsCatModalOpen(false)}
           categories={categories}
           onAdd={handleAddCategory}
           onDelete={handleDeleteCategory}
+        />
+      )}
+
+      {isTransferModalOpen && (
+        <TransferModal 
+          onClose={() => setIsTransferModalOpen(false)}
+          transactions={transactions}
+          categories={categories}
+          events={events}
+          onImport={handleImportData}
         />
       )}
 
@@ -605,7 +777,6 @@ function AdBanner() {
 
   return (
     <div className="mt-8 mb-4">
-      {/* プレビュー用のダミー広告枠 */}
       <div className="w-full h-20 bg-gray-100 border-2 border-dashed border-gray-300 rounded-xl flex flex-col items-center justify-center text-gray-400">
         <span className="text-xs font-bold mb-1">スポンサーリンク</span>
         <span className="text-[10px]">公開後にここに広告が表示されます</span>
@@ -614,17 +785,131 @@ function AdBanner() {
   );
 }
 
+// --- サブコンポーネント: データお引越し(バックアップ/復元)モーダル ---
+function TransferModal({ onClose, transactions, categories, events, onImport }) {
+  const [activeTab, setActiveTab] = useState('export'); // 'export' | 'import'
+  const [importText, setImportText] = useState('');
+  const [copied, setCopied] = useState(false);
+
+  const exportDataStr = JSON.stringify({ transactions, categories, events });
+
+  const handleCopy = () => {
+    try {
+      navigator.clipboard.writeText(exportDataStr);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 3000);
+    } catch (err) {
+      const textArea = document.getElementById('export-textarea');
+      if(textArea) {
+        textArea.select();
+        document.execCommand('copy');
+        setCopied(true);
+        setTimeout(() => setCopied(false), 3000);
+      }
+    }
+  };
+
+  const handleImport = () => {
+    if(!importText.trim()) return alert('データが入力されていません。');
+    
+    try {
+      const parsed = JSON.parse(importText);
+      if (parsed.transactions && Array.isArray(parsed.transactions) && parsed.categories && Array.isArray(parsed.categories)) {
+        if (window.confirm('現在のデータはすべて消去され、入力したデータで上書きされます。本当によろしいですか？')) {
+          onImport(parsed.transactions, parsed.categories, parsed.events || []);
+          alert('データの復元が完了しました！');
+          onClose();
+        }
+      } else {
+        alert('正しい形式のデータではありません。コピーした文字をそのまま貼り付けてください。');
+      }
+    } catch (e) {
+      alert('正しいデータではありません。不要な文字が混ざっていないか確認してください。');
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-in fade-in duration-200">
+      <div className="bg-white w-full max-w-md rounded-3xl p-6 shadow-2xl flex flex-col">
+        <div className="flex items-center justify-between mb-6">
+          <h2 className="text-xl font-bold text-gray-800">データのお引越し</h2>
+          <button onClick={onClose} className="p-2 bg-gray-100 hover:bg-gray-200 text-gray-500 rounded-full transition-colors">
+            <X size={20} />
+          </button>
+        </div>
+
+        <div className="flex p-1 bg-gray-100 rounded-xl mb-5 shrink-0">
+          <button
+            onClick={() => setActiveTab('export')}
+            className={`flex-1 py-2 text-sm font-bold rounded-lg transition-all ${activeTab === 'export' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+          >
+            データを書き出す
+          </button>
+          <button
+            onClick={() => setActiveTab('import')}
+            className={`flex-1 py-2 text-sm font-bold rounded-lg transition-all ${activeTab === 'import' ? 'bg-white text-red-500 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+          >
+            データを読み込む
+          </button>
+        </div>
+
+        {activeTab === 'export' ? (
+          <div className="space-y-4">
+            <p className="text-sm text-gray-600">
+              今のデータを別の端末に引き継ぐために、下の文字をすべてコピーしてください。
+            </p>
+            <div className="relative">
+              <textarea 
+                id="export-textarea"
+                readOnly 
+                value={exportDataStr}
+                className="w-full h-32 bg-gray-50 border border-gray-200 rounded-xl p-3 text-xs text-gray-400 font-mono focus:outline-none resize-none"
+              />
+              <button 
+                onClick={handleCopy}
+                className={`absolute bottom-3 right-3 flex items-center space-x-1.5 px-3 py-1.5 rounded-lg text-sm font-medium text-white transition-colors ${copied ? 'bg-green-500' : 'bg-gray-900 hover:bg-gray-800'}`}
+              >
+                {copied ? <Check size={16} /> : <Copy size={16} />}
+                <span>{copied ? 'コピーしました' : 'コピーする'}</span>
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div className="space-y-4">
+            <p className="text-sm text-gray-600">
+              古い端末で「コピー」した文字を、下の枠の中に貼り付けてください。
+            </p>
+            <textarea 
+              value={importText}
+              onChange={(e) => setImportText(e.target.value)}
+              placeholder='ここに貼り付け'
+              className="w-full h-32 bg-gray-50 border border-gray-200 rounded-xl p-3 text-xs text-gray-800 font-mono focus:outline-none focus:ring-2 focus:ring-red-500 resize-none"
+            />
+            <button 
+              onClick={handleImport}
+              className="w-full bg-red-500 hover:bg-red-600 text-white font-bold py-3 rounded-xl shadow-md transition-colors flex items-center justify-center space-x-2"
+            >
+              <Database size={18} />
+              <span>データを復元する</span>
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // --- サブコンポーネント: トランザクション入力モーダル ---
-function TransactionModal({ onClose, onSubmit, categories, initialDate, editingTx }) {
+function TransactionModal({ onClose, onSubmit, categories, events, initialDate, editingTx }) {
   const [type, setType] = useState(editingTx ? editingTx.type : 'expense');
   const [amount, setAmount] = useState(editingTx ? editingTx.amount.toString() : '');
   const [date, setDate] = useState(editingTx ? editingTx.date : getLocalYMD(initialDate));
   const [categoryId, setCategoryId] = useState(editingTx ? editingTx.categoryId : '');
   const [memo, setMemo] = useState(editingTx ? editingTx.memo : '');
+  const [eventId, setEventId] = useState(editingTx?.eventId || '');
 
   const filteredCategories = categories.filter(c => c.type === type);
 
-  // デフォルトカテゴリーの設定
   React.useEffect(() => {
     if (filteredCategories.length > 0 && !filteredCategories.find(c => c.id === categoryId)) {
       setCategoryId(filteredCategories[0].id);
@@ -641,13 +926,14 @@ function TransactionModal({ onClose, onSubmit, categories, initialDate, editingT
       amount: Number(amount),
       date,
       categoryId,
-      memo
+      memo,
+      eventId
     });
   };
 
   return (
     <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-end sm:items-center justify-center animate-in fade-in duration-200">
-      <div className="bg-white w-full max-w-md rounded-t-3xl sm:rounded-3xl p-6 pb-10 sm:pb-6 animate-in slide-in-from-bottom-full sm:slide-in-from-bottom-10 shadow-2xl">
+      <div className="bg-white w-full max-w-md rounded-t-3xl sm:rounded-3xl p-6 pb-10 sm:pb-6 animate-in slide-in-from-bottom-full sm:slide-in-from-bottom-10 shadow-2xl overflow-y-auto max-h-[90vh]">
         <div className="flex items-center justify-between mb-6">
           <h2 className="text-xl font-bold text-gray-800">{editingTx ? '記録を編集' : '記録を追加'}</h2>
           <button onClick={onClose} className="p-2 bg-gray-100 hover:bg-gray-200 text-gray-500 rounded-full transition-colors">
@@ -656,7 +942,6 @@ function TransactionModal({ onClose, onSubmit, categories, initialDate, editingT
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-5">
-          {/* 種類切り替え */}
           <div className="flex p-1 bg-gray-100 rounded-xl">
             <button
               type="button"
@@ -726,6 +1011,27 @@ function TransactionModal({ onClose, onSubmit, categories, initialDate, editingT
               className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent transition-all"
             />
           </div>
+
+          {events && events.length > 0 && (
+            <div>
+              <label className="block text-xs font-semibold text-gray-500 mb-1.5 ml-1">まとめに含める (任意)</label>
+              <div className="relative">
+                <select
+                  value={eventId}
+                  onChange={e => setEventId(e.target.value)}
+                  className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent transition-all appearance-none"
+                >
+                  <option value="">設定しない</option>
+                  {events.map(evt => (
+                    <option key={evt.id} value={evt.id}>{evt.name}</option>
+                  ))}
+                </select>
+                <div className="absolute inset-y-0 right-4 flex items-center pointer-events-none text-gray-400">
+                  <Folder size={16} />
+                </div>
+              </div>
+            </div>
+          )}
 
           <button type="submit" className="w-full bg-gray-900 hover:bg-gray-800 text-white font-bold py-4 rounded-xl shadow-md transition-colors mt-2">
             {editingTx ? '更新する' : '保存する'}
